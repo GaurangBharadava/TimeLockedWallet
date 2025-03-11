@@ -13,12 +13,15 @@ contract Wallet is Ownable, ReentrancyGuard {
     error Wallet__fundsAreLocked();
     error Wallet_missingFunds();
 
-    event timeLockUpdated(uint32 duration);
-    event deposited(uint256 amount, uint256 timestamp);
+    event TimeLockUpdated(uint32 duration);
+    event Deposited(uint256 amount, uint256 timestamp);
+    event Withdrawed(uint256 amount);
 
     uint256 private timeLock;
     uint32 public immutable duration = 10 days;
+    uint8 public immutable penaltyPercent = 10;
     uint256 ethBalance;
+    uint256 penalty;
     // uint256 tokenBalance;
 
     constructor(uint256 _lockTime) Ownable(msg.sender) {
@@ -33,12 +36,12 @@ contract Wallet is Ownable, ReentrancyGuard {
         if (msg.value == 0) {
             revert Wallet__canNotDepositZeroValue();
         }
-        emit deposited(msg.value, block.timestamp);
+        emit Deposited(msg.value, block.timestamp);
         ethBalance = ethBalance + msg.value;
         _setTimeLock();
     }
 
-    function withdraw(uint256 _amount) external onlyOwner nonReentrant {
+    function partialWithdraw(uint256 _amount) external onlyOwner nonReentrant {
         if (block.timestamp < timeLock) {
             revert Wallet__fundsAreLocked();
         }
@@ -48,15 +51,41 @@ contract Wallet is Ownable, ReentrancyGuard {
         if (_amount > ethBalance) {
             revert Wallet__insufficiantFundsInWallet();
         }
+        ethBalance = ethBalance - _amount;
         (bool ok,) = payable(owner()).call{value: _amount}("");
+        emit Withdrawed(_amount);
         if (!ok) {
             revert Wallet__withdrawelFailed();
         }
     }
 
+    function withdraw() external onlyOwner nonReentrant {
+        if (block.timestamp < timeLock) {
+            revert Wallet__fundsAreLocked();
+        }
+        if (ethBalance == 0) {
+            revert Wallet_missingFunds();
+        }
+        uint256 amount = ethBalance;
+        ethBalance = 0;
+        (bool ok,) = payable(owner()).call{value: amount}("");
+        emit Withdrawed(amount);
+        if (!ok) {
+            revert Wallet__withdrawelFailed();
+        }
+    }
+
+    function emergencyUnlock() external onlyOwner nonReentrant {
+        uint256 balance = ethBalance;
+        uint256 fees = (balance * penaltyPercent) / 100;
+        penalty += fees;
+        ethBalance -= fees;
+        //on going.
+    }
+
     function _setTimeLock() private {
-        emit timeLockUpdated(duration);
         timeLock = block.timestamp + uint256(duration);
+        emit TimeLockUpdated(duration);
     }
 
     function getBalance() external view onlyOwner returns (uint256) {
