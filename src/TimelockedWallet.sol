@@ -27,15 +27,15 @@ contract Wallet is Ownable, ReentrancyGuard {
     bool lock;
     // uint256 tokenBalance;
 
-    constructor(uint256 _lockTime) Ownable(msg.sender) {
-        timeLock = _lockTime;
+    constructor() Ownable(msg.sender) {
+        timeLock = block.timestamp + duration;
     }
 
     function getTimeLock() external view onlyOwner returns (uint256) {
         return timeLock;
     }
 
-    function deposit() external payable {
+    function deposit() external payable onlyOwner {
         if (msg.value == 0) {
             revert Wallet__canNotDepositZeroValue();
         }
