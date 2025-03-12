@@ -12,16 +12,19 @@ contract Wallet is Ownable, ReentrancyGuard {
     error Wallet__withdrawelFailed();
     error Wallet__fundsAreLocked();
     error Wallet_missingFunds();
+    // error Wallet__walletIsLocked();
 
     event TimeLockUpdated(uint32 duration);
     event Deposited(uint256 amount, uint256 timestamp);
     event Withdrawed(uint256 amount);
+    event LockExtended(uint256 time);
 
     uint256 private timeLock;
-    uint32 public immutable duration = 10 days;
+    uint32 public immutable duration = 2 days;
     uint8 public immutable penaltyPercent = 10;
     uint256 ethBalance;
     uint256 penalty;
+    bool lock;
     // uint256 tokenBalance;
 
     constructor(uint256 _lockTime) Ownable(msg.sender) {
@@ -63,6 +66,7 @@ contract Wallet is Ownable, ReentrancyGuard {
         if (block.timestamp < timeLock) {
             revert Wallet__fundsAreLocked();
         }
+
         if (ethBalance == 0) {
             revert Wallet_missingFunds();
         }
@@ -75,20 +79,37 @@ contract Wallet is Ownable, ReentrancyGuard {
         }
     }
 
-    function emergencyUnlock() external onlyOwner nonReentrant {
-        uint256 balance = ethBalance;
-        uint256 fees = (balance * penaltyPercent) / 100;
-        penalty += fees;
-        ethBalance -= fees;
-        //on going.
+    // function emergencyUnlock() external onlyOwner nonReentrant {
+    //     uint256 balance = ethBalance;
+    //     uint256 fees = (balance * penaltyPercent) / 100;
+    //     penalty += fees;
+    //     ethBalance -= fees;
+
+    // }
+
+    function extendLock(uint256 _time) external onlyOwner nonReentrant {
+        require(_time > 0, "Time for lock extend has to be more then zero");
+        timeLock += _time;
+        emit LockExtended(_time);
     }
 
     function _setTimeLock() private {
+        // lock = true;
         timeLock = block.timestamp + uint256(duration);
         emit TimeLockUpdated(duration);
     }
 
     function getBalance() external view onlyOwner returns (uint256) {
         return ethBalance;
+    }
+
+    receive() external payable {
+        ethBalance += msg.value;
+        emit Deposited(msg.value, block.timestamp);
+    }
+
+    fallback() external payable {
+        ethBalance += msg.value;
+        emit Deposited(msg.value, block.timestamp);
     }
 }
