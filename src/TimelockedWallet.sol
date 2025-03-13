@@ -3,15 +3,23 @@ pragma solidity ^0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract Wallet is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     error Wallet__canNotDepositZeroValue();
     error Wallet__insufficiantFundsInWallet();
     error Wallet__withdrawelFailed();
     error Wallet__fundsAreLocked();
     error Wallet_missingFunds();
+    error Wallet__zeroAddress();
+    error Wallet__canNotSendZeroAmount();
+    error Wallet__transactionFailed();
+    error Wallet__canNotSendMoreThenBalance();
+    error Wallet__wrongToken();
     // error Wallet__walletIsLocked();
 
     event TimeLockUpdated(uint32 duration);
@@ -22,9 +30,10 @@ contract Wallet is Ownable, ReentrancyGuard {
     uint256 private timeLock;
     uint32 public immutable duration = 2 days;
     uint8 public immutable penaltyPercent = 10;
+    mapping(address token => uint256 balance) public tokenToBalance;
     uint256 ethBalance;
     uint256 penalty;
-    bool lock;
+    // bool lock;
     // uint256 tokenBalance;
 
     constructor() Ownable(msg.sender) {
@@ -43,6 +52,21 @@ contract Wallet is Ownable, ReentrancyGuard {
         ethBalance = ethBalance + msg.value;
         _setTimeLock();
     }
+
+    function depositeFTokens(address _token, uint256 _amount) external onlyOwner nonReentrant {
+        if (_amount == 0) {
+            revert Wallet__canNotDepositZeroValue();
+        }
+        if (_token == address(0)) {
+            revert Wallet__wrongToken();
+        }
+        tokenToBalance[_token] += _amount;
+        IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        emit Deposited(_amount, block.timestamp);
+        _setTimeLock();
+    }
+
+    function WithdrawFToken(address _token, uint256 _amount) external onlyOwner nonReentrant {}
 
     function partialWithdraw(uint256 _amount) external onlyOwner nonReentrant {
         if (block.timestamp < timeLock) {
@@ -86,6 +110,29 @@ contract Wallet is Ownable, ReentrancyGuard {
     //     ethBalance -= fees;
 
     // }
+
+    function sendEth(address _to, uint256 _amount) external onlyOwner nonReentrant {
+        if (block.timestamp < timeLock) {
+            revert Wallet__fundsAreLocked();
+        }
+        if (payable(address(_to)) == address(0)) {
+            revert Wallet__zeroAddress();
+        }
+        if (_amount == 0) {
+            revert Wallet__canNotSendZeroAmount();
+        }
+
+        if (ethBalance < _amount) {
+            revert Wallet__canNotSendMoreThenBalance();
+        }
+
+        ethBalance -= _amount;
+        (bool ok,) = payable(_to).call{value: _amount}("");
+        if (!ok) {
+            revert Wallet__transactionFailed();
+        }
+        _setTimeLock();
+    }
 
     function extendLock(uint256 _time) external onlyOwner nonReentrant {
         require(_time > 0, "Time for lock extend has to be more then zero");

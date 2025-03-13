@@ -5,6 +5,11 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Wallet} from "../src/TimelockedWallet.sol";
 
 contract TestTimelockedWallet is Test {
+    event TimeLockUpdated(uint32 duration);
+    event Deposited(uint256 amount, uint256 timestamp);
+    event Withdrawed(uint256 amount);
+    event LockExtended(uint256 time);
+
     Wallet public wallet;
     address owner = makeAddr("owner");
 
@@ -141,11 +146,45 @@ contract TestTimelockedWallet is Test {
         vm.stopPrank();
     }
 
-    function testZeroAmountCanNotFullWithdrawAndMoreThenBalance() public {
+    function testZeroAmountCanNotFullWithdraw() public {
         vm.startPrank(owner);
         vm.warp(wallet.getTimeLock() + 3 days);
         vm.expectRevert(Wallet.Wallet_missingFunds.selector);
         wallet.withdraw();
+        vm.stopPrank();
+    }
+
+    function testZeroAmountCanNotPartialWithdraw() public {
+        vm.startPrank(owner);
+        vm.warp(wallet.getTimeLock() + 3 days);
+        vm.expectRevert(Wallet.Wallet_missingFunds.selector);
+        wallet.partialWithdraw(1 ether);
+        vm.stopPrank();
+    }
+
+    function testAllEvent() public {
+        vm.startPrank(owner);
+        vm.expectEmit();
+        emit Wallet.LockExtended(2 days);
+        wallet.extendLock(2 days);
+
+        vm.expectEmit();
+        emit Wallet.Deposited(10 ether, block.timestamp);
+        vm.expectEmit();
+        emit Wallet.TimeLockUpdated(2 days);
+        wallet.deposit{value: 10 ether}();
+
+        vm.warp(wallet.getTimeLock() + 3 days);
+        vm.expectEmit();
+        emit Wallet.Withdrawed(10 ether);
+        wallet.withdraw();
+
+        wallet.deposit{value: 10 ether}();
+        vm.warp(wallet.getTimeLock() + 3 days);
+        vm.expectEmit();
+        emit Wallet.Withdrawed(5 ether);
+        wallet.partialWithdraw(5 ether);
+
         vm.stopPrank();
     }
 }
