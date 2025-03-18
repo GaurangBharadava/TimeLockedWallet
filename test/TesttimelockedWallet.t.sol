@@ -3,6 +3,8 @@ pragma solidity ^0.8.26;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Wallet} from "../src/TimelockedWallet.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 
 contract TestTimelockedWallet is Test {
     event TimeLockUpdated(uint32 duration);
@@ -11,11 +13,15 @@ contract TestTimelockedWallet is Test {
     event LockExtended(uint256 time);
 
     Wallet public wallet;
+    address public usdc;
+    address public btc;
     address owner = makeAddr("owner");
 
     function setUp() public {
         vm.startPrank(owner);
         wallet = new Wallet();
+        usdc = address(new ERC20Mock());
+        btc = address(new ERC20Mock());
         vm.stopPrank();
         vm.deal(owner, 100 ether);
     }
@@ -129,7 +135,7 @@ contract TestTimelockedWallet is Test {
     function testZeroAmountCanNotWithdrawAndMoreThenBalance() public {
         vm.startPrank(owner);
         vm.warp(wallet.getTimeLock() + 3 days);
-        vm.expectRevert(Wallet.Wallet_missingFunds.selector);
+        vm.expectRevert(Wallet.Wallet__missingFunds.selector);
         wallet.partialWithdraw(1 ether);
         wallet.deposit{value: 10 ether}();
         vm.warp(wallet.getTimeLock() + 3 days);
@@ -149,7 +155,7 @@ contract TestTimelockedWallet is Test {
     function testZeroAmountCanNotFullWithdraw() public {
         vm.startPrank(owner);
         vm.warp(wallet.getTimeLock() + 3 days);
-        vm.expectRevert(Wallet.Wallet_missingFunds.selector);
+        vm.expectRevert(Wallet.Wallet__missingFunds.selector);
         wallet.withdraw();
         vm.stopPrank();
     }
@@ -157,7 +163,7 @@ contract TestTimelockedWallet is Test {
     function testZeroAmountCanNotPartialWithdraw() public {
         vm.startPrank(owner);
         vm.warp(wallet.getTimeLock() + 3 days);
-        vm.expectRevert(Wallet.Wallet_missingFunds.selector);
+        vm.expectRevert(Wallet.Wallet__missingFunds.selector);
         wallet.partialWithdraw(1 ether);
         vm.stopPrank();
     }
@@ -186,5 +192,77 @@ contract TestTimelockedWallet is Test {
         wallet.partialWithdraw(5 ether);
 
         vm.stopPrank();
+    }
+
+    function testDepositeFtoken() public {
+        vm.startPrank(owner);
+        ERC20Mock(usdc).mint(owner, 10e18);
+        ERC20Mock(btc).mint(owner, 10e18);
+        ERC20Mock(usdc).approve(address(wallet), 10e18);
+        ERC20Mock(btc).approve(address(wallet), 10e18);
+        wallet.depositeFTokens(usdc, 10);
+        wallet.depositeFTokens(btc, 1e18);
+        vm.stopPrank();
+        assertEq(wallet.tokenToBalance(usdc), 10);
+        assertEq(wallet.tokenToBalance(btc), 1e18);
+        assertEq(IERC20(usdc).balanceOf(owner), 9999999999999999990);
+        assertEq(IERC20(btc).balanceOf(owner), 9e18);
+    }
+
+    function testNonOwnerCannotDepositeFtoken() public {
+        address user = makeAddr("user");
+        vm.startPrank(user);
+        ERC20Mock(usdc).mint(user, 10e18);
+        ERC20Mock(btc).mint(user, 10e18);
+        ERC20Mock(usdc).approve(address(wallet), 10e18);
+        ERC20Mock(btc).approve(address(wallet), 10e18);
+        vm.expectRevert();
+        wallet.depositeFTokens(usdc, 10);
+        vm.expectRevert();
+        wallet.depositeFTokens(btc, 1e18);
+        vm.stopPrank();
+    }
+
+    function testWithdraw() public {
+        vm.startPrank(owner);
+        ERC20Mock(usdc).mint(owner, 10e18);
+        ERC20Mock(btc).mint(owner, 10e18);
+        ERC20Mock(usdc).approve(address(wallet), 10e18);
+        ERC20Mock(btc).approve(address(wallet), 10e18);
+        wallet.depositeFTokens(usdc, 1e18);
+        wallet.depositeFTokens(btc, 1e18);
+        vm.stopPrank();
+        assertEq(wallet.tokenToBalance(usdc), 1e18);
+        assertEq(wallet.tokenToBalance(btc), 1e18);
+        assertEq(IERC20(usdc).balanceOf(owner), 9e18);
+        assertEq(IERC20(btc).balanceOf(owner), 9e18);
+
+        vm.startPrank(owner);
+        vm.warp(wallet.getTimeLock() + 3 days);
+        wallet.withdrawFtoken(usdc);
+        vm.stopPrank();
+        assertEq(IERC20(usdc).balanceOf(owner), 10e18);
+        assertEq(wallet.tokenToBalance(usdc), 0);
+    }
+
+    function testPartialFWithdraw() public {
+        vm.startPrank(owner);
+        ERC20Mock(usdc).mint(owner, 10e18);
+        ERC20Mock(btc).mint(owner, 10e18);
+        ERC20Mock(usdc).approve(address(wallet), 10e18);
+        ERC20Mock(btc).approve(address(wallet), 10e18);
+        wallet.depositeFTokens(usdc, 1e18);
+        wallet.depositeFTokens(btc, 1e18);
+        vm.stopPrank();
+        assertEq(wallet.tokenToBalance(usdc), 1e18);
+        assertEq(wallet.tokenToBalance(btc), 1e18);
+        assertEq(IERC20(usdc).balanceOf(owner), 9e18);
+        assertEq(IERC20(btc).balanceOf(owner), 9e18);
+
+        vm.startPrank(owner);
+        vm.warp(wallet.getTimeLock() + 3 days);
+        wallet.partialwithdrawFToken(usdc, 1e16);
+        vm.stopPrank();
+        console2.log("Wallet balance: ", wallet.tokenToBalance(usdc));
     }
 }

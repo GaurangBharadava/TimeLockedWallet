@@ -14,7 +14,7 @@ contract Wallet is Ownable, ReentrancyGuard {
     error Wallet__insufficiantFundsInWallet();
     error Wallet__withdrawelFailed();
     error Wallet__fundsAreLocked();
-    error Wallet_missingFunds();
+    error Wallet__missingFunds();
     error Wallet__zeroAddress();
     error Wallet__canNotSendZeroAmount();
     error Wallet__transactionFailed();
@@ -53,7 +53,7 @@ contract Wallet is Ownable, ReentrancyGuard {
         _setTimeLock();
     }
 
-    function depositeFTokens(address _token, uint256 _amount) external onlyOwner nonReentrant {
+    function depositeFTokens(address _token, uint256 _amount) external onlyOwner {
         if (_amount == 0) {
             revert Wallet__canNotDepositZeroValue();
         }
@@ -66,14 +66,43 @@ contract Wallet is Ownable, ReentrancyGuard {
         _setTimeLock();
     }
 
-    function WithdrawFToken(address _token, uint256 _amount) external onlyOwner nonReentrant {}
+    function partialwithdrawFToken(address _token, uint256 _amount) external onlyOwner nonReentrant {
+        if (block.timestamp < timeLock) {
+            revert Wallet__fundsAreLocked();
+        }
+        if (_token == address(0)) {
+            revert Wallet__wrongToken();
+        }
+        if (_amount == 0) {
+            revert Wallet__missingFunds();
+        }
+        if (_amount > tokenToBalance[_token]) {
+            revert Wallet__insufficiantFundsInWallet();
+        }
+        tokenToBalance[_token] -= _amount;
+        IERC20(_token).safeTransfer(msg.sender, _amount);
+        emit Withdrawed(_amount);
+    }
+
+    function withdrawFtoken(address _token) external onlyOwner nonReentrant {
+        if (block.timestamp < timeLock) {
+            revert Wallet__fundsAreLocked();
+        }
+        if (_token == address(0)) {
+            revert Wallet__wrongToken();
+        }
+        uint256 amount = tokenToBalance[_token];
+        tokenToBalance[_token] = 0;
+        IERC20(_token).safeTransfer(msg.sender, amount);
+        emit Withdrawed(amount);
+    }
 
     function partialWithdraw(uint256 _amount) external onlyOwner nonReentrant {
         if (block.timestamp < timeLock) {
             revert Wallet__fundsAreLocked();
         }
         if (ethBalance == 0) {
-            revert Wallet_missingFunds();
+            revert Wallet__missingFunds();
         }
         if (_amount > ethBalance) {
             revert Wallet__insufficiantFundsInWallet();
@@ -92,7 +121,7 @@ contract Wallet is Ownable, ReentrancyGuard {
         }
 
         if (ethBalance == 0) {
-            revert Wallet_missingFunds();
+            revert Wallet__missingFunds();
         }
         uint256 amount = ethBalance;
         ethBalance = 0;
